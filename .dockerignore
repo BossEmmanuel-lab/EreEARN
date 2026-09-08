@@ -1,0 +1,75 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Django runtime and dev data
+*.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+celerybeat-schedule
+celerybeat.pid
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# Rust and Soroban build artifacts
+contracts/target/
+contracts/**/target/
+*.wasm
+*.wasm.optimized
+Cargo.lock
+
+# Docker files
+docker-compose.override.yml
+.docker/
+Dockerfile*
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Testing and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+*.log
+
+# Documentation
+README.md
+*.md
+docs/

@@ -1,0 +1,123 @@
+services:
+  # Redis cache and Celery broker
+  redis:
+    image: redis:7-alpine
+    container_name: ereearn_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django REST API server
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: ereearn_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      ALLOWED_HOSTS: "localhost,127.0.0.1,web"
+    volumes:
+      - .:/app
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/bounties/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    command: >
+      sh -c "
+        python manage.py migrate --noinput &&
+        gunicorn Core.wsgi:application
+          --bind 0.0.0.0:8000
+          --workers 3
+          --threads 2
+          --timeout 120
+          --access-logfile -
+          --error-logfile -
+          --log-level info
+      "
+
+  # Celery background worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: ereearn_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    command: >
+      celery -A Core worker
+        --loglevel=info
+        --concurrency=2
+        --queues=default
+
+  # Periodic background task runner for expired bounty cleanup
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: ereearn_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+      - beat_schedule:/app/celerybeat
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    command: >
+      sh -c "
+        while true; do
+          python manage.py check_expired_bounties;
+          sleep 3600;
+        done
+      "
+
+volumes:
+  redis_data:
+    driver: local
+  static_files:
+    driver: local
+  media_files:
+    driver: local
+  beat_schedule:
+    driver: local
