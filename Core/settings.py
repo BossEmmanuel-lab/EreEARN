@@ -28,7 +28,13 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", cast=bool)
 
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", cast=Csv())
+_allowed_hosts_config = config("ALLOWED_HOSTS", default="*", cast=Csv())
+if "*" in _allowed_hosts_config:
+    ALLOWED_HOSTS = ["*"]
+else:
+    ALLOWED_HOSTS = list(
+        set([h.strip() for h in _allowed_hosts_config if h.strip()] + ["localhost", "127.0.0.1", "web", "0.0.0.0"])
+    )
 
 
 # Application definition
@@ -214,7 +220,14 @@ USDC_ASSET_ISSUER = config(
 
 
 REDIS_URL = config("REDIS_URL", default=config("CELERY_BROKER_URL", default=""))
-if REDIS_URL and REDIS_URL.startswith("redis"):
+if "test" in sys.argv:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "ÉréEARN-test-cache",
+        }
+    }
+elif REDIS_URL and REDIS_URL.startswith("redis"):
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
