@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libffi8 \
     curl \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
@@ -37,8 +38,8 @@ WORKDIR /app
 
 COPY --chown=appuser:appgroup . .
 
-RUN mkdir -p /app/staticfiles /app/media \
-    && chown -R appuser:appgroup /app/staticfiles /app/media
+RUN mkdir -p /app/data /app/staticfiles /app/media \
+    && chown -R appuser:appgroup /app/data /app/staticfiles /app/media
 
 USER appuser
 

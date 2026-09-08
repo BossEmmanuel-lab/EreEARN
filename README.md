@@ -130,7 +130,7 @@ The backend is completely **headless** and optimized for integration with modern
 │       └── src/
 │           └── lib.rs        # Soroban escrow contract source code
 ├── Dockerfile                # Multi-stage container build
-├── docker-compose.yml        # Orchestration (web, redis, worker, beat)
+├── docker-compose.yml        # Orchestration (db, redis, web, worker, beat)
 ├── .dockerignore             # Docker build context exclusion list
 ├── .gitignore                # Git repository exclusion list
 ├── .env.example              # Sample environment variables

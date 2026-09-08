@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from datetime import timedelta
 from pathlib import Path
+import dj_database_url
 from decouple import config, Csv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -76,12 +77,37 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "Core.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+import sys
+
+DATABASE_URL = config("DATABASE_URL", default="")
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
     }
-}
+elif DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+else:
+    DATA_DIR = BASE_DIR / "data"
+    if DATA_DIR.exists():
+        DEFAULT_DB_PATH = DATA_DIR / "db.sqlite3"
+    else:
+        DEFAULT_DB_PATH = BASE_DIR / "db.sqlite3"
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": config("DATABASE_PATH", default=str(DEFAULT_DB_PATH)),
+        }
+    }
 
 AUTH_USER_MODEL = "api.User"
 
