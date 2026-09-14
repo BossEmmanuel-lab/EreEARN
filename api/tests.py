@@ -51,6 +51,163 @@ class WalletAuthTestCase(APITestCase):
         self.assertTrue(verified)
 
 
+class EmailAuthAndSkillsTestCase(APITestCase):
+    """Test email/password registration, login, skills management, and wallet linking."""
+
+    def test_register_with_email_and_skills(self):
+        url = reverse("api:user-register")
+        payload = {
+            "email": "dev@example.com",
+            "password": "StrongPassword123!",
+            "password_confirm": "StrongPassword123!",
+            "role": User.Role.CONTRIBUTOR,
+            "skills": ["Frontend Developer", "React", "TailwindCSS"],
+            "bio": "Passionate frontend engineer",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertEqual(response.data["user"]["email"], "dev@example.com")
+        self.assertEqual(
+            response.data["user"]["skills"],
+            ["Frontend Developer", "React", "TailwindCSS"],
+        )
+        self.assertIsNone(response.data["user"]["wallet_address"])
+
+        user = User.objects.get(email="dev@example.com")
+        self.assertTrue(user.check_password("StrongPassword123!"))
+        self.assertEqual(user.skills, ["Frontend Developer", "React", "TailwindCSS"])
+
+    def test_register_duplicate_email_fails(self):
+        User.objects.create_user(
+            username="existing",
+            email="duplicate@example.com",
+            password="Password123!",
+        )
+        url = reverse("api:user-register")
+        response = self.client.post(
+            url,
+            {"email": "duplicate@example.com", "password": "Password123!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
+    def test_login_with_email_success(self):
+        User.objects.create_user(
+            username="login_user",
+            email="login@example.com",
+            password="ValidPassword123!",
+            skills=["Backend Engineer", "Python", "Django"],
+        )
+        url = reverse("api:user-login")
+        response = self.client.post(
+            url,
+            {"email": "login@example.com", "password": "ValidPassword123!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertEqual(
+            response.data["user"]["skills"],
+            ["Backend Engineer", "Python", "Django"],
+        )
+
+    def test_login_with_invalid_credentials_fails(self):
+        User.objects.create_user(
+            username="test_user",
+            email="test@example.com",
+            password="CorrectPassword123!",
+        )
+        url = reverse("api:user-login")
+        response = self.client.post(
+            url,
+            {"email": "test@example.com", "password": "WrongPassword!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_profile_update_skills_and_link_wallet(self):
+        user = User.objects.create_user(
+            username="profile_user",
+            email="profile@example.com",
+            password="Password123!",
+        )
+        self.client.force_authenticate(user=user)
+        url = reverse("api:user-profile")
+
+        valid_stellar_wallet = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        update_data = {
+            "bio": "Updated bio text",
+            "skills": ["Smart Contract Engineer", "Rust", "Soroban"],
+            "wallet_address": valid_stellar_wallet,
+        }
+        response = self.client.patch(url, update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["skills"],
+            ["Smart Contract Engineer", "Rust", "Soroban"],
+        )
+        self.assertEqual(response.data["wallet_address"], valid_stellar_wallet)
+        self.assertEqual(response.data["bio"], "Updated bio text")
+
+        user.refresh_from_db()
+        self.assertEqual(user.wallet_address, valid_stellar_wallet)
+        self.assertEqual(user.skills, ["Smart Contract Engineer", "Rust", "Soroban"])
+
+    def test_claim_without_wallet_rejected(self):
+        poster = User.objects.create_user(
+            username="poster_1",
+            wallet_address="GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5PX42BLFYDPBIVGWAD",
+            role=User.Role.POSTER,
+        )
+        bounty = Bounty.objects.create(
+            poster=poster,
+            title="Escrow Bounty",
+            description="Fix Soroban bug",
+            skill_category=Bounty.SkillCategory.DEVELOPMENT,
+            reward_amount=Decimal("50.0"),
+            reward_asset=Bounty.Asset.XLM,
+            deadline=timezone.now() + timedelta(days=3),
+            status=Bounty.Status.POSTED,
+        )
+        user_no_wallet = User.objects.create_user(
+            username="nowallet",
+            email="nowallet@example.com",
+            password="Password123!",
+            role=User.Role.CONTRIBUTOR,
+        )
+        self.client.force_authenticate(user=user_no_wallet)
+        claim_url = reverse("api:bounty-claim", kwargs={"pk": bounty.pk})
+        response = self.client.post(claim_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("wallet", response.data["detail"].lower())
+
+    def test_create_bounty_without_wallet_rejected(self):
+        poster_no_wallet = User.objects.create_user(
+            username="poster_nowallet",
+            email="posternowallet@example.com",
+            password="Password123!",
+            role=User.Role.POSTER,
+        )
+        self.client.force_authenticate(user=poster_no_wallet)
+        url = reverse("api:bounty-create")
+        response = self.client.post(
+            url,
+            {
+                "title": "Bounty without wallet",
+                "description": "Test",
+                "skill_category": Bounty.SkillCategory.DEVELOPMENT,
+                "reward_amount": "100.0",
+                "reward_asset": "XLM",
+                "deadline": (timezone.now() + timedelta(days=2)).isoformat(),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("wallet", response.data["detail"].lower())
+
+
 class BountyTestCase(APITestCase):
     """Test Bounty CRUD and lifecycle endpoints."""
 

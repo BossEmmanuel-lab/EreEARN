@@ -21,6 +21,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Bounty, Submission, Transaction, User
 from .serializers import (
+    AuthResponseSerializer,
     BountyCreateSerializer,
     BountyDetailSerializer,
     BountyListSerializer,
@@ -31,7 +32,9 @@ from .serializers import (
     SubmissionReviewSerializer,
     SubmissionSerializer,
     TransactionSerializer,
+    UserLoginSerializer,
     UserProfileSerializer,
+    UserRegisterSerializer,
     WalletChallengeSerializer,
     WalletVerifySerializer,
 )
@@ -55,6 +58,65 @@ logger = logging.getLogger(__name__)
 
 
 # Authentication views
+
+
+class UserRegisterView(APIView):
+    """Register a new user account with email and password."""
+
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        summary="Register with email and password",
+        request=UserRegisterSerializer,
+        responses={201: AuthResponseSerializer},
+        tags=["Authentication"],
+    )
+    def post(self, request):
+        serializer = UserRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        if user.wallet_address:
+            _ensure_account_exists_on_testnet(user.wallet_address)
+
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": UserProfileSerializer(user).data,
+                "created": True,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class UserLoginView(APIView):
+    """Authenticate with email and password and issue JWT tokens."""
+
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        summary="Log in with email and password",
+        request=UserLoginSerializer,
+        responses={200: AuthResponseSerializer},
+        tags=["Authentication"],
+    )
+    def post(self, request):
+        serializer = UserLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": UserProfileSerializer(user).data,
+                "created": False,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class WalletChallengeView(APIView):
@@ -96,6 +158,7 @@ class WalletVerifyView(APIView):
         wallet_address = serializer.validated_data["wallet_address"]
         signature = serializer.validated_data["signature"]
         role = serializer.validated_data.get("role", User.Role.CONTRIBUTOR)
+        username = serializer.validated_data.get("username")
 
         is_verified = verify_challenge(wallet_address, signature)
 
@@ -115,13 +178,17 @@ class WalletVerifyView(APIView):
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
 
+        default_username = username or f"user_{wallet_address[:12]}"
         user, created = User.objects.get_or_create(
             wallet_address=wallet_address,
             defaults={
-                "username": f"user_{wallet_address[:12]}",
+                "username": default_username,
                 "role": role,
             },
         )
+        if not created and username and (user.username.startswith("user_") or user.username != username):
+            user.username = username
+            user.save(update_fields=["username"])
         if created:
             _ensure_account_exists_on_testnet(wallet_address)
 
@@ -187,6 +254,11 @@ class BountyPrepareFundView(APIView):
     )
     def post(self, request):
         poster_address = request.user.wallet_address
+        if not poster_address:
+            return Response(
+                {"detail": "You must connect and link a Stellar wallet before funding a bounty."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         amount = request.data.get("reward_amount")
         asset_code = request.data.get("reward_asset", "XLM")
         deadline_str = request.data.get("deadline")
@@ -262,6 +334,12 @@ class BountyCreateView(generics.CreateAPIView):
         tags=["Bounties"],
     )
     def create(self, request, *args, **kwargs):
+        if not request.user.wallet_address:
+            return Response(
+                {"detail": "You must connect and link a Stellar wallet before creating and funding a bounty."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -414,6 +492,12 @@ class BountyClaimView(APIView):
         tags=["Bounties"],
     )
     def post(self, request, pk):
+        if not request.user.wallet_address:
+            return Response(
+                {"detail": "You must connect and link a Stellar wallet to claim bounties and receive payouts."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Only contributors can claim bounties.
         if request.user.role == User.Role.POSTER:
             return Response(

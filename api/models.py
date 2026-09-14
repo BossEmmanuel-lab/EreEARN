@@ -6,26 +6,63 @@ from django.utils import timezone
 
 
 class User(AbstractUser):
-    """Custom user model with Stellar wallet integration."""
+    """Custom user model with Stellar wallet and email authentication."""
 
     class Role(models.TextChoices):
         POSTER = "POSTER", "Poster"
         CONTRIBUTOR = "CONTRIBUTOR", "Contributor"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    wallet_address = models.CharField(max_length=56, unique=True, db_index=True, help_text="Stellar public key (G...)")
+    wallet_address = models.CharField(
+        max_length=56,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Stellar public key (G...)",
+    )
+    email = models.EmailField(
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
     role = models.CharField(max_length=12, choices=Role.choices, default=Role.CONTRIBUTOR)
+    skills = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of contributor skills or specialties (e.g. Frontend Developer, Backend Engineer)",
+    )
     bio = models.TextField(blank=True, default="")
     avatar_url = models.URLField(blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
-    REQUIRED_FIELDS = ["wallet_address"]
+    REQUIRED_FIELDS = []
 
     class Meta:
         ordering = ["-date_joined"]
 
+    def clean(self):
+        super().clean()
+        if not self.email:
+            self.email = None
+        else:
+            self.email = self.email.strip().lower()
+        if not self.wallet_address:
+            self.wallet_address = None
+
+    def save(self, *args, **kwargs):
+        if not self.email:
+            self.email = None
+        else:
+            self.email = self.email.strip().lower()
+        if not self.wallet_address:
+            self.wallet_address = None
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.get_role_display()} — {self.wallet_address[:8]}"
+        identifier = self.wallet_address[:8] if self.wallet_address else (self.email or self.username)
+        return f"{self.get_role_display()} — {identifier}"
 
 
 

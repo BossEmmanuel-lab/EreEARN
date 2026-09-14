@@ -21,6 +21,8 @@ urlpatterns = [
     path("redoc/", SpectacularRedocView.as_view(url_name="api:schema"), name="redoc"),
 
     # Authentication
+    path("auth/register/", views.UserRegisterView.as_view(), name="user-register"),
+    path("auth/login/", views.UserLoginView.as_view(), name="user-login"),
     path("auth/challenge/", views.WalletChallengeView.as_view(), name="wallet-challenge"),
     path("auth/verify/", views.WalletVerifyView.as_view(), name="wallet-verify"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),

@@ -263,11 +263,13 @@ Interactive OpenAPI 3.1 documentation is served directly from the application:
 
 | Tag                | Method  | Path                                     | Auth | Description                                    |
 | ------------------ | ------- | ---------------------------------------- | ---- | ---------------------------------------------- |
+| **Authentication** | `POST`  | `/api/v1/auth/register/`                 | None | Register with email, password, role, & skills  |
+| **Authentication** | `POST`  | `/api/v1/auth/login/`                    | None | Authenticate with email & password for JWT     |
 | **Authentication** | `POST`  | `/api/v1/auth/challenge/`                | None | Generate wallet challenge nonce                |
 | **Authentication** | `POST`  | `/api/v1/auth/verify/`                   | None | Verify Ed25519 signature and obtain JWT        |
 | **Authentication** | `POST`  | `/api/v1/auth/refresh/`                  | None | Refresh expired JWT access token               |
 | **Authentication** | `GET`   | `/api/v1/auth/me/`                       | JWT  | Get current user profile                       |
-| **Authentication** | `PATCH` | `/api/v1/auth/me/`                       | JWT  | Update user bio, avatar URL, or role           |
+| **Authentication** | `PATCH` | `/api/v1/auth/me/`                       | JWT  | Update bio, avatar, skills, or link wallet     |
 | **Bounties**       | `GET`   | `/api/v1/bounties/`                      | None | List bounties with filters and search          |
 | **Bounties**       | `POST`  | `/api/v1/bounties/prepare-fund/`         | JWT  | Build unsigned funding transaction XDR         |
 | **Bounties**       | `POST`  | `/api/v1/bounties/create/`               | JWT  | Create bounty and broadcast signed funding XDR |
@@ -288,11 +290,14 @@ Interactive OpenAPI 3.1 documentation is served directly from the application:
 
 #### `User` (`api/models.py`)
 
-Custom user model using UUID primary keys and Stellar wallet public keys for identification.
+Custom user model using UUID primary keys, supporting both email/password accounts and Stellar wallet public keys for identification.
 
 - `id`: `UUIDField` primary key.
-- `wallet_address`: `CharField(max_length=56, unique=True, db_index=True)` Stellar public key (starts with `G`).
+- `username`: `CharField` custom handle/username (unique across users).
+- `email`: `EmailField(unique=True, null=True, blank=True, db_index=True)` for email authentication.
+- `wallet_address`: `CharField(max_length=56, unique=True, null=True, blank=True, db_index=True)` Stellar public key (starts with `G`).
 - `role`: `CharField(choices=["POSTER", "CONTRIBUTOR"])`. Default is `CONTRIBUTOR`.
+- `skills`: `JSONField(default=list, blank=True)` list of contributor skills / roles (e.g. `["Frontend Developer", "Backend Engineer"]`).
 - `bio`: `TextField` for profile summary.
 - `avatar_url`: `URLField` for profile image.
 - `updated_at`: `DateTimeField(auto_now=True)`.
@@ -346,13 +351,30 @@ On-chain transaction audit trail.
 
 ### 8.2 Serializers
 
+#### `UserRegisterSerializer` (`api/serializers.py`)
+
+- Accepts optional `username`, `email`, `password`, `password_confirm`, `role` (POSTER or CONTRIBUTOR), `skills` list, `bio`, and optional `wallet_address`.
+- Validates password length (minimum 8 characters) and confirmation match.
+- Validates that `email` and `username` are unique.
+- Generates fallback username from email if not provided and securely hashes password.
+
+#### `UserLoginSerializer` (`api/serializers.py`)
+
+- Accepts `email` and `password`.
+- Authenticates against active accounts and issues JWT tokens.
+
+#### `UserProfileSerializer` (`api/serializers.py`)
+
+- Returns user profile including `id`, `username`, `skills`, `email`, `wallet_address`, `role`, `bio`, and `avatar_url`.
+- Allows updating `username`, `skills`, `bio`, `avatar_url`, and linking/updating `wallet_address`.
+
 #### `WalletChallengeSerializer` (`api/serializers.py`)
 
 - Validates that `wallet_address` begins with `G` and is exactly 56 characters long.
 
 #### `WalletVerifySerializer` (`api/serializers.py`)
 
-- Accepts `wallet_address`, hex-encoded Ed25519 `signature`, and optional initial `role`.
+- Accepts `wallet_address`, hex-encoded Ed25519 `signature`, optional custom `username`, and optional initial `role`.
 
 #### `BountyCreateSerializer` (`api/serializers.py`)
 
@@ -377,6 +399,20 @@ On-chain transaction audit trail.
 
 ### 8.3 Views
 
+#### `UserRegisterView`
+
+- **Method**: `POST`
+- **Path**: `/api/v1/auth/register/`
+- **Auth**: None
+- Registers user via email and password, creates account with skills and role, returns JWT tokens and profile.
+
+#### `UserLoginView`
+
+- **Method**: `POST`
+- **Path**: `/api/v1/auth/login/`
+- **Auth**: None
+- Authenticates user credentials via email and password, returns JWT tokens and profile.
+
 #### `WalletChallengeView`
 
 - **Method**: `POST`
@@ -395,7 +431,7 @@ On-chain transaction audit trail.
 
 - **Method**: `GET`, `PATCH`
 - **Auth**: JWT required
-- Retrieves or updates user `bio`, `avatar_url`, and `role`.
+- Retrieves or updates user `bio`, `avatar_url`, `skills`, and linked `wallet_address`.
 
 #### `BountyListView`
 

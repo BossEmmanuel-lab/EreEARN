@@ -1,10 +1,10 @@
+import uuid
 from datetime import timedelta
 from django.db import models
 from django.utils import timezone
 from rest_framework import serializers
 from .models import Bounty, Submission, Transaction, User
 
-# Minimum deadline duration must match the contract (24 hours).
 MIN_DEADLINE_DURATION = timedelta(hours=24)
 
 
@@ -16,15 +16,168 @@ class ReviewAction(models.TextChoices):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "wallet_address", "role", "bio", "avatar_url", "date_joined"]
+        fields = [
+            "id",
+            "username",
+            "email",
+            "wallet_address",
+            "role",
+            "bio",
+            "avatar_url",
+            "skills",
+            "date_joined",
+        ]
         read_only_fields = fields
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        default=list,
+    )
+    wallet_address = serializers.CharField(
+        max_length=56,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+    )
+
     class Meta:
         model = User
-        fields = ["id", "wallet_address", "role", "bio", "avatar_url", "date_joined", "updated_at"]
-        read_only_fields = ["id", "wallet_address", "date_joined", "updated_at"]
+        fields = [
+            "id",
+            "username",
+            "email",
+            "wallet_address",
+            "role",
+            "bio",
+            "avatar_url",
+            "skills",
+            "date_joined",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "date_joined", "updated_at"]
+
+    def validate_wallet_address(self, value):
+        if not value:
+            return None
+        value = value.strip()
+        if not value.startswith("G") or len(value) != 56:
+            raise serializers.ValidationError("Invalid Stellar public key. Must start with 'G' and be 56 characters.")
+        existing = User.objects.filter(wallet_address=value)
+        if self.instance:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise serializers.ValidationError("This wallet address is already linked to another account.")
+        return value
+
+    def validate_skills(self, value):
+        if isinstance(value, list):
+            return [str(s).strip() for s in value if str(s).strip()]
+        return []
+
+
+class UserRegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        default=list,
+    )
+    wallet_address = serializers.CharField(
+        max_length=56,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "username",
+            "password",
+            "password_confirm",
+            "role",
+            "skills",
+            "bio",
+            "avatar_url",
+            "wallet_address",
+        ]
+        extra_kwargs = {
+            "email": {"required": True},
+            "username": {"required": False},
+        }
+
+    def validate_email(self, value):
+        if not value:
+            raise serializers.ValidationError("Email is required.")
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_wallet_address(self, value):
+        if not value:
+            return None
+        value = value.strip()
+        if not value.startswith("G") or len(value) != 56:
+            raise serializers.ValidationError("Invalid Stellar public key. Must start with 'G' and be 56 characters.")
+        if User.objects.filter(wallet_address=value).exists():
+            raise serializers.ValidationError("This wallet address is already in use.")
+        return value
+
+    def validate(self, attrs):
+        password = attrs.get("password")
+        password_confirm = attrs.get("password_confirm")
+        if password_confirm and password != password_confirm:
+            raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop("password_confirm", None)
+        password = validated_data.pop("password")
+        email = validated_data.get("email")
+        username = validated_data.get("username")
+        if not username:
+            base_username = email.split("@")[0]
+            candidate = base_username[:20]
+            if User.objects.filter(username=candidate).exists():
+                candidate = f"{candidate}_{uuid.uuid4().hex[:6]}"
+            validated_data["username"] = candidate
+
+        user = User.objects.create_user(password=password, **validated_data)
+        return user
+
+
+class UserLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        email = attrs.get("email", "").strip().lower()
+        password = attrs.get("password", "")
+
+        user = User.objects.filter(email__iexact=email).first()
+        if not user or not user.check_password(password):
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.is_active:
+            raise serializers.ValidationError("User account is disabled.")
+
+        attrs["user"] = user
+        return attrs
+
+
+class AuthResponseSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = UserProfileSerializer()
+    created = serializers.BooleanField(required=False)
 
 
 class WalletChallengeSerializer(serializers.Serializer):
@@ -46,6 +199,22 @@ class WalletVerifySerializer(serializers.Serializer):
         default=User.Role.CONTRIBUTOR,
         help_text="Role to register with (only used for first-time login)",
     )
+    username = serializers.CharField(
+        max_length=150,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default=None,
+        help_text="Optional custom username for first-time login",
+    )
+
+    def validate_username(self, value):
+        if not value:
+            return None
+        value = value.strip()
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("This username is already taken.")
+        return value
 
 
 class BountyListSerializer(serializers.ModelSerializer):

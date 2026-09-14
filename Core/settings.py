@@ -161,7 +161,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "TAGS": [
-        {"name": "Authentication", "description": "Wallet cryptographic challenge and verification"},
+        {"name": "Authentication", "description": "Email/password registration, login, wallet authentication, and profile management"},
         {"name": "Bounties", "description": "Bounty discovery, funding preparation, creation, and claiming"},
         {"name": "Submissions", "description": "Deliverable submissions and review processing"},
         {"name": "Dashboards", "description": "Aggregated stats for contributors and posters"},
@@ -184,8 +184,8 @@ SIMPLE_JWT = {
 }
 
 
-CORS_ALLOW_ALL_ORIGINS = True
-#CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", cast=Csv())
+
+CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", cast=Csv())
 
 
 # Stellar / Soroban Configuration

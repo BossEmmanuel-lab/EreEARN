@@ -6,13 +6,17 @@ from .models import Bounty, Submission, Transaction, User
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ["username", "wallet_address", "role", "is_staff", "date_joined"]
+    list_display = ["username", "email", "wallet_address", "role", "is_staff", "date_joined"]
     list_filter = ["role", "is_staff", "is_active"]
-    search_fields = ["username", "wallet_address"]
+    search_fields = ["username", "email", "wallet_address"]
     ordering = ["-date_joined"]
 
-    fieldsets = list(BaseUserAdmin.fieldsets) + [("ÉréEARN Profile",{"fields": ("wallet_address", "role", "bio", "avatar_url")})]
-    add_fieldsets = list(BaseUserAdmin.add_fieldsets) + [("ÉréEARN Profile",{"fields": ("wallet_address", "role")})]
+    fieldsets = list(BaseUserAdmin.fieldsets) + [
+        ("ÉréEARN Profile", {"fields": ("wallet_address", "role", "skills", "bio", "avatar_url")})
+    ]
+    add_fieldsets = list(BaseUserAdmin.add_fieldsets) + [
+        ("ÉréEARN Profile", {"fields": ("wallet_address", "role", "skills")})
+    ]
 
 
 
